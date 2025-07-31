@@ -1,37 +1,141 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card shadow p-3">
-  <h2 class="mb-3">Your Expenses</h2>
-  <table class="table table-bordered table-hover">
-  <thead class="table-light">
-    <tr>
-      <th>Amount</th>
-      <th>Category</th>
-      <th>Note</th>
-      <th>Date</th>
-      <th>Action</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for exp in expenses %}
-    <tr>
-      <td>{{ exp[1] }}</td>
-      <td>{{ exp[2] }}</td>
-      <td>{{ exp[3] }}</td>
-      <td>{{ exp[4] }}</td>
-      <td>
-        <form action="{{ url_for('delete_expense', expense_id=exp[0]) }}" method="post" style="display:inline;">
-          <button type="submit" class="btn btn-sm btn-danger rounded-pill">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
-              <path d="M5.5 5.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0V6H6v6.5a.5.5 0 0 1-1 0v-7z"/>
-              <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2h3.1a1 1 0 0 1 .9-.6h4a1 1 0 0 1 .9.6h3.1a1 1 0 0 1 0 2H14.5z"/>
-            </svg>
-          </button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+
+<!-- Summary Cards -->
+<div class="row mb-4">
+  <div class="col-md-4">
+    <div class="card text-bg-success shadow">
+      <div class="card-body">
+        <h5>Total Income</h5>
+        <h3>₹ {{ total_income }}</h3>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-danger shadow">
+      <div class="card-body">
+        <h5>Total Expenses</h5>
+        <h3>₹ {{ total_expenses }}</h3>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card text-bg-primary shadow">
+      <div class="card-body">
+        <h5>Balance</h5>
+        <h3>₹ {{ balance }}</h3>
+      </div>
+    </div>
+  </div>
 </div>
+
+<!-- Filter & Export -->
+<form method="GET" action="{{ url_for('index') }}" class="row g-3 mb-4">
+  <!-- Date From -->
+  <div class="col-md-3">
+    <input type="date" name="from_date" value="{{ request.args.get('from_date', '') }}" class="form-control">
+  </div>
+
+  <!-- Date To -->
+  <div class="col-md-3">
+    <input type="date" name="to_date" value="{{ request.args.get('to_date', '') }}" class="form-control">
+  </div>
+
+  <!-- Category Filter -->
+  <div class="col-md-3">
+    <select name="category" class="form-select">
+      <option value="">All Categories</option>
+      {% for cat in category_icons.keys() %}
+      <option value="{{ cat }}" {% if request.args.get('category')==cat %}selected{% endif %}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <!-- Search Note -->
+  <div class="col-md-3">
+    <input type="text" name="search" placeholder="Search note..." value="{{ request.args.get('search', '') }}"
+      class="form-control">
+  </div>
+
+  <!-- Buttons -->
+  <div class="col-md-12 d-flex justify-content-between">
+    <button type="submit" class="btn btn-primary">Filter</button>
+    <a href="{{ url_for('export_excel',
+                    from_date=request.args.get('from_date',''),
+                    to_date=request.args.get('to_date',''),
+                    category=request.args.get('category',''),
+                    search=request.args.get('search','')) }}" class="btn btn-success">Export Excel</a>
+  </div>
+</form>
+
+<!-- Expenses & Income Tables -->
+<div class="row">
+  <!-- Expenses Table -->
+  <div class="col-md-6 mb-4">
+    <div class="card shadow p-3">
+      <h4>Expenses</h4>
+      <table class="table table-bordered table-hover">
+        <thead class="table-light">
+          <tr>
+            <th>Amount</th>
+            <th>Category</th>
+            <th>Note</th>
+            <th>Date</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for exp in expenses %}
+          <tr>
+            <td>{{ exp[1] }}</td>
+            <td>
+              <i class="{{ category_icons.get(exp[2], 'bi bi-three-dots') }}"></i>
+              {{ exp[2] }}
+            </td>
+            <td>{{ exp[3] }}</td>
+            <td>{{ exp[4] }}</td>
+            <td>
+              <a href="{{ url_for('delete_expense', id=exp[0]) }}" class="btn btn-sm btn-outline-danger"
+                onclick="return confirm('Delete this expense?')">Delete</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Income Table -->
+  <div class="col-md-6 mb-4">
+    <div class="card shadow p-3">
+      <h4>Income</h4>
+      <table class="table table-bordered table-hover">
+        <thead class="table-light">
+          <tr>
+            <th>Amount</th>
+            <th>Source</th>
+            <th>Note</th>
+            <th>Date</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inc in income %}
+          <tr>
+            <td>{{ inc[1] }}</td>
+            <td>{{ inc[2] }}</td>
+            <td>{{ inc[3] }}</td>
+            <td>{{ inc[4] }}</td>
+            <td>
+              <a href="{{ url_for('delete_income', id=inc[0]) }}" class="btn btn-sm btn-outline-danger"
+                onclick="return confirm('Delete this income?')">Delete</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 {% endblock %}

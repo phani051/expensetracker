@@ -1,8 +1,23 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, send_file
 import sqlite3
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
+from openpyxl import Workbook
+from io import BytesIO
+
+CATEGORY_ICONS = {
+    "Food & Dining": "bi bi-egg-fried",       # food
+    "Transportation": "bi bi-truck",          # transport
+    "Housing & Utilities": "bi bi-house",     # home
+    "Health & Fitness": "bi bi-heart-pulse",  # health
+    "Entertainment": "bi bi-controller",      # entertainment
+    "Shopping": "bi bi-bag",                  # shopping
+    "Education": "bi bi-book",                # education
+    "Travel": "bi bi-airplane",               # travel
+    "Bills & EMI": "bi bi-credit-card",       # bills
+    "Miscellaneous": "bi bi-three-dots",      # misc
+}
 
 app = Flask(__name__)
 app.secret_key = "supersecretkey"  # Change this in production
@@ -73,14 +88,127 @@ def is_admin():
 
 @app.route('/')
 def index():
-    if not get_user_id():
+    if 'user_id' not in session:
         return redirect(url_for('login'))
+
+    user_id = session['user_id']
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    category = request.args.get('category')
+    search = request.args.get('search')
+
+    filters_expense = "user_id=?"
+    params_expense = [user_id]
+
+    if from_date:
+        filters_expense += " AND date(date) >= date(?)"
+        params_expense.append(from_date)
+    if to_date:
+        filters_expense += " AND date(date) <= date(?)"
+        params_expense.append(to_date)
+    if category:
+        filters_expense += " AND category=?"
+        params_expense.append(category)
+    if search:
+        filters_expense += " AND note LIKE ?"
+        params_expense.append(f"%{search}%")
+
+    filters_income = "user_id=?"
+    params_income = [user_id]
+    # (Optional: add similar filters for income if you want category-like fields)
 
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        c.execute("SELECT id, amount, category, note, date FROM expenses WHERE user_id=? ORDER BY date DESC", (session['user_id'],)),
+
+        # Expenses
+        c.execute(f"SELECT id, amount, category, note, date FROM expenses WHERE {filters_expense} ORDER BY date DESC", params_expense)
         expenses = c.fetchall()
-    return render_template('index.html', expenses=expenses)
+
+        # Income (no category filter yet, just date/search if you want to add)
+        c.execute(f"SELECT id, amount, source, note, date FROM income WHERE {filters_income} ORDER BY date DESC", params_income)
+        income = c.fetchall()
+
+        # Totals (without filters)
+        c.execute("SELECT SUM(amount) FROM expenses WHERE user_id=?", (user_id,))
+        total_expenses = c.fetchone()[0] or 0
+        c.execute("SELECT SUM(amount) FROM income WHERE user_id=?", (user_id,))
+        total_income = c.fetchone()[0] or 0
+
+        balance = total_income - total_expenses
+
+    return render_template('index.html',
+                           expenses=expenses,
+                           income=income,
+                           total_income=total_income,
+                           total_expenses=total_expenses,
+                           balance=balance,
+                           category_icons=CATEGORY_ICONS)
+    
+@app.route('/export_excel')
+def export_excel():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    user_id = session['user_id']
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    category = request.args.get('category')
+    search = request.args.get('search')
+
+    # Build filters for expenses
+    filters_expense = "user_id=?"
+    params_expense = [user_id]
+
+    if from_date:
+        filters_expense += " AND date(date) >= date(?)"
+        params_expense.append(from_date)
+    if to_date:
+        filters_expense += " AND date(date) <= date(?)"
+        params_expense.append(to_date)
+    if category:
+        filters_expense += " AND category=?"
+        params_expense.append(category)
+    if search:
+        filters_expense += " AND note LIKE ?"
+        params_expense.append(f"%{search}%")
+
+    # Query expenses
+    with sqlite3.connect(DB_NAME) as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT amount, category, note, date FROM expenses WHERE {filters_expense} ORDER BY date DESC", params_expense)
+        expenses = c.fetchall()
+
+        # Query income (apply only date/search filters if you want symmetry)
+        c.execute("SELECT amount, source, note, date FROM income WHERE user_id=? ORDER BY date DESC", (user_id,))
+        income = c.fetchall()
+
+    # Create workbook
+    wb = Workbook()
+
+    # Expenses Sheet
+    ws_exp = wb.active
+    ws_exp.title = "Expenses"
+    ws_exp.append(["Amount", "Category", "Note", "Date"])
+    for row in expenses:
+        ws_exp.append(row)
+
+    # Income Sheet
+    ws_inc = wb.create_sheet(title="Income")
+    ws_inc.append(["Amount", "Source", "Note", "Date"])
+    for row in income:
+        ws_inc.append(row)
+
+    # Save to memory
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="expenses_income.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 @app.route('/add', methods=['GET', 'POST'])
 def add_expense():
@@ -198,7 +326,7 @@ def add_income():
             conn.commit()
 
         flash('Income added successfully!')
-        return redirect(url_for('view_income'))
+        return redirect(url_for('index'))
 
     return render_template('add_income.html')
 
@@ -214,33 +342,33 @@ def view_income():
 
     return render_template('view_income.html', income=income_data)
 
-@app.route('/delete_expense/<int:expense_id>', methods=['POST'])
-def delete_expense(expense_id):
+@app.route('/delete_expense/<int:id>')
+def delete_expense(id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        # Ensure user can delete only their own expense
-        c.execute("DELETE FROM expenses WHERE id = ? AND user_id = ?", (expense_id, session['user_id']))
+        # Delete only if belongs to current user
+        c.execute("DELETE FROM expenses WHERE id=? AND user_id=?", (id, session['user_id']))
         conn.commit()
 
-    flash('Expense deleted successfully!')
+    flash('Expense deleted!')
     return redirect(url_for('index'))
 
-@app.route('/delete_income/<int:income_id>', methods=['POST'])
-def delete_income(income_id):
+@app.route('/delete_income/<int:id>')
+def delete_income(id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        # Ensure user can delete only their own income
-        c.execute("DELETE FROM income WHERE id = ? AND user_id = ?", (income_id, session['user_id']))
+        # Delete only if belongs to current user
+        c.execute("DELETE FROM income WHERE id=? AND user_id=?", (id, session['user_id']))
         conn.commit()
 
-    flash('Income deleted successfully!')
-    return redirect(url_for('view_income'))
+    flash('Income deleted!')
+    return redirect(url_for('index'))
 
 
 
