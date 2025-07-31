@@ -46,14 +46,17 @@
     <select name="category" class="form-select">
       <option value="">All Categories</option>
       {% for cat in category_icons.keys() %}
-      <option value="{{ cat }}" {% if request.args.get('category')==cat %}selected{% endif %}>{{ cat }}</option>
+      <option value="{{ cat }}" {% if request.args.get('category')==cat %}selected{% endif %}>
+        {{ category_icons[cat][1] }} {{ cat }}
+      </option>
       {% endfor %}
     </select>
   </div>
 
   <!-- Search Note -->
   <div class="col-md-3">
-    <input type="text" name="search" placeholder="Search note..." value="{{ request.args.get('search', '') }}" class="form-control">
+    <input type="text" name="search" placeholder="Search note..." value="{{ request.args.get('search', '') }}"
+      class="form-control">
   </div>
 
   <!-- Buttons -->
@@ -107,8 +110,7 @@
           <tr>
             <td>{{ exp[1] }}</td>
             <td>
-              <i class="{{ category_icons.get(exp[2], 'bi bi-three-dots') }}"></i>
-              {{ exp[2] }}
+              <i class="{{ category_icons.get(exp[2]) }}"></i> {{ category_icons.get(exp[2])[1] }} {{ exp[2] }}
             </td>
             <td>{{ exp[3] }}</td>
             <td>{{ exp[4] }}</td>
@@ -164,13 +166,13 @@
   new Chart(pieCtx, {
     type: 'pie',
     data: {
-      labels: {{ expense_labels|default([])|tojson }},
-      datasets: [{
-        data: {{ expense_values|default([])|tojson }},
-        backgroundColor: [
-          '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
-          '#FF9F40', '#8DD17E', '#E377C2', '#17BECF', '#BDB2FF'
-        ]
+      labels: {{ expense_labels|default([]) | tojson }},
+    datasets: [{
+      data: {{ expense_values|default ([]) | tojson }},
+    backgroundColor: [
+      '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+      '#FF9F40', '#8DD17E', '#E377C2', '#17BECF', '#BDB2FF'
+    ]
       }]
     }
   });
@@ -180,26 +182,26 @@
   new Chart(barCtx, {
     type: 'bar',
     data: {
-      labels: {{ months|default([])|tojson }},
-      datasets: [
-        {
-          label: 'Income',
-          backgroundColor: '#36A2EB',
-          data: {{ income_per_month|default([])|tojson }}
+      labels: {{ months|default([]) | tojson }},
+    datasets: [
+    {
+      label: 'Income',
+      backgroundColor: '#36A2EB',
+      data: {{ income_per_month|default ([]) | tojson }}
         },
-        {
-          label: 'Expenses',
-          backgroundColor: '#FF6384',
-          data: {{ expenses_per_month|default([])|tojson }}
+    {
+      label: 'Expenses',
+      backgroundColor: '#FF6384',
+      data: {{ expenses_per_month|default ([]) | tojson }}
         }
-      ]
+  ]
     },
     options: {
-      responsive: true,
-      scales: {
-        y: { beginAtZero: true }
-      }
+    responsive: true,
+    scales: {
+      y: { beginAtZero: true }
     }
+  }
   });
 </script>
 

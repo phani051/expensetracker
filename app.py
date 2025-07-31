@@ -1,41 +1,46 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 import sqlite3
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from openpyxl import Workbook
 from io import BytesIO
+from datetime import timedelta, datetime
 
+# ---------------- CATEGORY ICONS ----------------
 CATEGORY_ICONS = {
-    "Food & Dining": "bi bi-egg-fried",       # food
-    "Transportation": "bi bi-truck",          # transport
-    "Housing & Utilities": "bi bi-house",     # home
-    "Health & Fitness": "bi bi-heart-pulse",  # health
-    "Entertainment": "bi bi-controller",      # entertainment
-    "Shopping": "bi bi-bag",                  # shopping
-    "Education": "bi bi-book",                # education
-    "Travel": "bi bi-airplane",               # travel
-    "Bills & EMI": "bi bi-credit-card",       # bills
-    "Miscellaneous": "bi bi-three-dots",      # misc
+    "Food & Dining": ("bi bi-egg-fried", "🍔"),
+    "Transportation": ("bi bi-truck", "🚗"),
+    "Housing & Utilities": ("bi bi-house", "🏠"),
+    "Health & Fitness": ("bi bi-heart-pulse", "💪"),
+    "Entertainment": ("bi bi-controller", "🎮"),
+    "Shopping": ("bi bi-bag", "🛍️"),
+    "Education": ("bi bi-book", "📚"),
+    "Travel": ("bi bi-airplane", "✈️"),
+    "Bills & EMI": ("bi bi-credit-card", "💳"),
+    "Miscellaneous": ("bi bi-three-dots", "🌀"),
+    "Investment": ("bi bi-graph-up-arrow", "📈")  # NEW CATEGORY
 }
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # Change this in production
+app.secret_key = "supersecretkey"
 DB_NAME = "expenses.db"
+
 
 # ---------------- DATABASE INIT ----------------
 def init_db():
     first_time = not os.path.exists(DB_NAME)
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        # Create users table
+
+        # Users
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       username TEXT UNIQUE,
                       password TEXT,
                       is_admin INTEGER DEFAULT 0)''')
 
-        # Create expenses table
+        # Expenses
         c.execute('''CREATE TABLE IF NOT EXISTS expenses
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
                       user_id INTEGER,
@@ -44,36 +49,46 @@ def init_db():
                       note TEXT,
                       date TEXT,
                       FOREIGN KEY(user_id) REFERENCES users(id))''')
-        conn.commit()
-        
-        # Create income table
-        c.execute('''CREATE TABLE IF NOT EXISTS income
-                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                     user_id INTEGER,
-                     amount REAL,
-                     source TEXT,
-                     note TEXT,
-                     date TEXT,
-                     FOREIGN KEY(user_id) REFERENCES users(id))''')
 
-        # Ensure "phani" user exists and is admin
+        # Income
+        c.execute('''CREATE TABLE IF NOT EXISTS income
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      amount REAL,
+                      source TEXT,
+                      note TEXT,
+                      date TEXT,
+                      FOREIGN KEY(user_id) REFERENCES users(id))''')
+
+        # Recurring Expenses
+        c.execute('''CREATE TABLE IF NOT EXISTS recurring_expenses
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      amount REAL,
+                      category TEXT,
+                      note TEXT,
+                      frequency TEXT,
+                      next_due_date TEXT,
+                      FOREIGN KEY(user_id) REFERENCES users(id))''')
+
+        # Default Admin
         default_admin_user = "phani"
-        default_admin_pass = generate_password_hash("admin123")  # Default password
+        default_admin_pass = generate_password_hash("admin123")
         c.execute("SELECT id FROM users WHERE username=?", (default_admin_user,))
         user = c.fetchone()
         if not user:
             c.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, 1)",
                       (default_admin_user, default_admin_pass))
-            conn.commit()
             print("Default admin user 'phani' created with password 'admin123'")
         else:
-            # Ensure admin flag is set
             c.execute("UPDATE users SET is_admin=1 WHERE username=?", (default_admin_user,))
-            conn.commit()
-            
-# Helper
+        conn.commit()
+
+
+# ---------------- HELPERS ----------------
 def get_user_id():
     return session.get("user_id")
+
 
 def is_admin():
     if not get_user_id():
@@ -83,8 +98,21 @@ def is_admin():
         c.execute("SELECT is_admin FROM users WHERE id=?", (get_user_id(),))
         result = c.fetchone()
         return result and result[0] == 1
+    
+def get_next_due_date(current_date, frequency):
+    """Calculate next due date based on frequency"""
+    if frequency == "daily":
+        return current_date + timedelta(days=1)
+    elif frequency == "weekly":
+        return current_date + timedelta(weeks=1)
+    elif frequency == "monthly":
+        # Approx: add 30 days (can refine later)
+        return current_date + timedelta(days=30)
+    return current_date
+
 
 # ---------------- ROUTES ----------------
+
 
 @app.route('/')
 def index():
@@ -92,12 +120,45 @@ def index():
         return redirect(url_for('login'))
 
     user_id = session['user_id']
+
+    # ---------- Auto-add recurring expenses ----------
+    today = datetime.now().date()
+    with sqlite3.connect(DB_NAME) as conn:
+        c = conn.cursor()
+        # Get due recurring
+        c.execute("""
+            SELECT id, amount, category, note, frequency, next_due_date
+            FROM recurring_expenses
+            WHERE user_id=? AND date(next_due_date) <= date(?)
+        """, (user_id, today))
+        due_recurring = c.fetchall()
+
+        # Insert due into expenses and update next_due_date
+        for rec in due_recurring:
+            rec_id, amount, category, note, frequency, next_due_date = rec
+
+            # Insert into expenses
+            c.execute("""
+                INSERT INTO expenses (user_id, amount, category, note, date)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, amount, category, note, today.strftime('%Y-%m-%d %H:%M:%S')))
+
+            # Update next due date
+            next_dt = get_next_due_date(today, frequency)
+            c.execute("""
+                UPDATE recurring_expenses
+                SET next_due_date=?
+                WHERE id=?
+            """, (next_dt.strftime('%Y-%m-%d'), rec_id))
+
+        conn.commit()
+
+    # ---------- Rest of your existing index logic ----------
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     category = request.args.get('category')
     search = request.args.get('search')
 
-    # ----- Filters for expenses -----
     filters_expense = "user_id=?"
     params_expense = [user_id]
 
@@ -114,7 +175,6 @@ def index():
         filters_expense += " AND note LIKE ?"
         params_expense.append(f"%{search}%")
 
-    # ----- Filters for income (only date + search, no category) -----
     filters_income = "user_id=?"
     params_income = [user_id]
 
@@ -131,23 +191,22 @@ def index():
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
 
-        # Expenses (table)
+        # Expenses
         c.execute(f"SELECT id, amount, category, note, date FROM expenses WHERE {filters_expense} ORDER BY date DESC", params_expense)
         expenses = c.fetchall()
 
-        # Income (table)
+        # Income
         c.execute(f"SELECT id, amount, source, note, date FROM income WHERE {filters_income} ORDER BY date DESC", params_income)
         income = c.fetchall()
 
-        # Totals (still all-time)
+        # Totals
         c.execute("SELECT SUM(amount) FROM expenses WHERE user_id=?", (user_id,))
         total_expenses = c.fetchone()[0] or 0
         c.execute("SELECT SUM(amount) FROM income WHERE user_id=?", (user_id,))
         total_income = c.fetchone()[0] or 0
         balance = total_income - total_expenses
 
-        # ---- Chart Data (filtered) ----
-        # Pie chart (filtered expenses by category)
+        # Pie chart data
         c.execute(f"""
             SELECT category, SUM(amount)
             FROM expenses
@@ -158,8 +217,7 @@ def index():
         expense_labels = [row[0] for row in expense_data]
         expense_values = [row[1] for row in expense_data]
 
-        # Bar chart (filtered monthly income & expenses)
-        # Income per month (filtered)
+        # Monthly bar chart data
         c.execute(f"""
             SELECT strftime('%Y-%m', date), SUM(amount)
             FROM income
@@ -169,7 +227,6 @@ def index():
         """, params_income)
         income_data = dict(c.fetchall())
 
-        # Expenses per month (filtered)
         c.execute(f"""
             SELECT strftime('%Y-%m', date), SUM(amount)
             FROM expenses
@@ -179,7 +236,6 @@ def index():
         """, params_expense)
         expense_month_data = dict(c.fetchall())
 
-        # Merge months
         months = sorted(set(list(income_data.keys()) + list(expense_month_data.keys())))
         income_per_month = [income_data.get(m, 0) for m in months]
         expenses_per_month = [expense_month_data.get(m, 0) for m in months]
@@ -199,7 +255,53 @@ def index():
         expenses_per_month=expenses_per_month
     )
 
-    
+
+
+@app.route('/recurring', methods=['GET', 'POST'])
+def recurring():
+    if not get_user_id():
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        amount = request.form['amount']
+        category = request.form['category']
+        note = request.form['note']
+        frequency = request.form['frequency']
+
+        next_due_date = datetime.now().strftime('%Y-%m-%d')
+
+        with sqlite3.connect(DB_NAME) as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO recurring_expenses (user_id, amount, category, note, frequency, next_due_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (get_user_id(), amount, category, note, frequency, next_due_date))
+            conn.commit()
+
+        flash('Recurring expense added!')
+        return redirect(url_for('recurring'))
+
+    with sqlite3.connect(DB_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT id, amount, category, note, frequency, next_due_date FROM recurring_expenses WHERE user_id=?", (get_user_id(),))
+        recurring_items = c.fetchall()
+
+    return render_template('recurring.html', recurring_items=recurring_items, category_icons=CATEGORY_ICONS)
+
+
+@app.route('/delete_recurring/<int:id>', methods=['POST'])
+def delete_recurring(id):
+    if not get_user_id():
+        return redirect(url_for('login'))
+
+    with sqlite3.connect(DB_NAME) as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM recurring_expenses WHERE id=? AND user_id=?", (id, get_user_id()))
+        conn.commit()
+
+    flash('Recurring expense deleted!')
+    return redirect(url_for('recurring'))
+
 @app.route('/export_excel')
 def export_excel():
     if 'user_id' not in session:
@@ -286,7 +388,7 @@ def add_expense():
         flash("Expense added successfully!")
         return redirect(url_for('index'))
 
-    return render_template('add_expense.html')
+    return render_template('add_expense.html', category_icons=CATEGORY_ICONS)
 
 # -------- USER AUTH --------
 @app.route('/signup', methods=['GET', 'POST'])

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container mt-4">
+
+  <!-- Page Title -->
+  <h2 class="mb-4">Recurring Expenses</h2>
+
+  <!-- Add Recurring Expense Form -->
+  <div class="card shadow mb-4">
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('recurring') }}">
+        <div class="row g-3">
+          <!-- Amount -->
+          <div class="col-md-3">
+            <input type="number" name="amount" step="0.01" class="form-control" placeholder="Amount" required>
+          </div>
+
+          <!-- Category -->
+          <div class="col-md-3">
+            <select name="category" class="form-select" required>
+              {% for cat in category_icons.keys() %}
+              <option value="{{ cat }}">{{ cat }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Note -->
+          <div class="col-md-3">
+            <input type="text" name="note" class="form-control" placeholder="Note">
+          </div>
+
+          <!-- Frequency -->
+          <div class="col-md-2">
+            <select name="frequency" class="form-select" required>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+
+          <!-- Submit Button -->
+          <div class="col-md-1 d-grid">
+            <button type="submit" class="btn btn-primary">Add</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Existing Recurring Expenses -->
+  <div class="card shadow">
+    <div class="card-body">
+      <h4 class="mb-3">Your Recurring Expenses</h4>
+      {% if recurring_items %}
+      <table class="table table-bordered table-hover">
+        <thead class="table-light">
+          <tr>
+            <th>Amount</th>
+            <th>Category</th>
+            <th>Note</th>
+            <th>Frequency</th>
+            <th>Next Due</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rec in recurring_items %}
+          <tr>
+            <td>₹ {{ rec[1] }}</td>
+            <td>
+              <i class="{{ category_icons.get(rec[2], 'bi bi-three-dots') }}"></i>
+              {{ rec[2] }}
+            </td>
+            <td>{{ rec[3] }}</td>
+            <td>{{ rec[4] | capitalize }}</td>
+            <td>{{ rec[5] }}</td>
+            <td>
+              <form method="POST" action="{{ url_for('delete_recurring', id=rec[0]) }}" onsubmit="return confirm('Delete this recurring expense?')">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted">No recurring expenses configured.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
