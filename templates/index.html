@@ -53,8 +53,7 @@
 
   <!-- Search Note -->
   <div class="col-md-3">
-    <input type="text" name="search" placeholder="Search note..." value="{{ request.args.get('search', '') }}"
-      class="form-control">
+    <input type="text" name="search" placeholder="Search note..." value="{{ request.args.get('search', '') }}" class="form-control">
   </div>
 
   <!-- Buttons -->
@@ -67,6 +66,25 @@
                     search=request.args.get('search','')) }}" class="btn btn-success">Export Excel</a>
   </div>
 </form>
+
+<!-- Charts Row (moved here) -->
+<div class="row mb-4">
+  <!-- Pie Chart: Expenses by Category -->
+  <div class="col-md-6">
+    <div class="card shadow p-3">
+      <h4>Expenses by Category</h4>
+      <canvas id="expensePieChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Bar Chart: Monthly Income vs Expenses -->
+  <div class="col-md-6">
+    <div class="card shadow p-3">
+      <h4>Monthly Income vs Expenses</h4>
+      <canvas id="monthlyBarChart"></canvas>
+    </div>
+  </div>
+</div>
 
 <!-- Expenses & Income Tables -->
 <div class="row">
@@ -137,5 +155,52 @@
     </div>
   </div>
 </div>
+
+<!-- Chart.js Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Pie Chart - Expenses by Category
+  const pieCtx = document.getElementById('expensePieChart').getContext('2d');
+  new Chart(pieCtx, {
+    type: 'pie',
+    data: {
+      labels: {{ expense_labels|default([])|tojson }},
+      datasets: [{
+        data: {{ expense_values|default([])|tojson }},
+        backgroundColor: [
+          '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+          '#FF9F40', '#8DD17E', '#E377C2', '#17BECF', '#BDB2FF'
+        ]
+      }]
+    }
+  });
+
+  // Bar Chart - Monthly Income vs Expenses
+  const barCtx = document.getElementById('monthlyBarChart').getContext('2d');
+  new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels: {{ months|default([])|tojson }},
+      datasets: [
+        {
+          label: 'Income',
+          backgroundColor: '#36A2EB',
+          data: {{ income_per_month|default([])|tojson }}
+        },
+        {
+          label: 'Expenses',
+          backgroundColor: '#FF6384',
+          data: {{ expenses_per_month|default([])|tojson }}
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+</script>
 
 {% endblock %}

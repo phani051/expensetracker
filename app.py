@@ -97,6 +97,7 @@ def index():
     category = request.args.get('category')
     search = request.args.get('search')
 
+    # ----- Filters for expenses -----
     filters_expense = "user_id=?"
     params_expense = [user_id]
 
@@ -113,36 +114,91 @@ def index():
         filters_expense += " AND note LIKE ?"
         params_expense.append(f"%{search}%")
 
+    # ----- Filters for income (only date + search, no category) -----
     filters_income = "user_id=?"
     params_income = [user_id]
-    # (Optional: add similar filters for income if you want category-like fields)
+
+    if from_date:
+        filters_income += " AND date(date) >= date(?)"
+        params_income.append(from_date)
+    if to_date:
+        filters_income += " AND date(date) <= date(?)"
+        params_income.append(to_date)
+    if search:
+        filters_income += " AND note LIKE ?"
+        params_income.append(f"%{search}%")
 
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
 
-        # Expenses
+        # Expenses (table)
         c.execute(f"SELECT id, amount, category, note, date FROM expenses WHERE {filters_expense} ORDER BY date DESC", params_expense)
         expenses = c.fetchall()
 
-        # Income (no category filter yet, just date/search if you want to add)
+        # Income (table)
         c.execute(f"SELECT id, amount, source, note, date FROM income WHERE {filters_income} ORDER BY date DESC", params_income)
         income = c.fetchall()
 
-        # Totals (without filters)
+        # Totals (still all-time)
         c.execute("SELECT SUM(amount) FROM expenses WHERE user_id=?", (user_id,))
         total_expenses = c.fetchone()[0] or 0
         c.execute("SELECT SUM(amount) FROM income WHERE user_id=?", (user_id,))
         total_income = c.fetchone()[0] or 0
-
         balance = total_income - total_expenses
 
-    return render_template('index.html',
-                           expenses=expenses,
-                           income=income,
-                           total_income=total_income,
-                           total_expenses=total_expenses,
-                           balance=balance,
-                           category_icons=CATEGORY_ICONS)
+        # ---- Chart Data (filtered) ----
+        # Pie chart (filtered expenses by category)
+        c.execute(f"""
+            SELECT category, SUM(amount)
+            FROM expenses
+            WHERE {filters_expense}
+            GROUP BY category
+        """, params_expense)
+        expense_data = c.fetchall()
+        expense_labels = [row[0] for row in expense_data]
+        expense_values = [row[1] for row in expense_data]
+
+        # Bar chart (filtered monthly income & expenses)
+        # Income per month (filtered)
+        c.execute(f"""
+            SELECT strftime('%Y-%m', date), SUM(amount)
+            FROM income
+            WHERE {filters_income}
+            GROUP BY strftime('%Y-%m', date)
+            ORDER BY strftime('%Y-%m', date)
+        """, params_income)
+        income_data = dict(c.fetchall())
+
+        # Expenses per month (filtered)
+        c.execute(f"""
+            SELECT strftime('%Y-%m', date), SUM(amount)
+            FROM expenses
+            WHERE {filters_expense}
+            GROUP BY strftime('%Y-%m', date)
+            ORDER BY strftime('%Y-%m', date)
+        """, params_expense)
+        expense_month_data = dict(c.fetchall())
+
+        # Merge months
+        months = sorted(set(list(income_data.keys()) + list(expense_month_data.keys())))
+        income_per_month = [income_data.get(m, 0) for m in months]
+        expenses_per_month = [expense_month_data.get(m, 0) for m in months]
+
+    return render_template(
+        'index.html',
+        expenses=expenses,
+        income=income,
+        total_income=total_income,
+        total_expenses=total_expenses,
+        balance=balance,
+        category_icons=CATEGORY_ICONS,
+        expense_labels=expense_labels,
+        expense_values=expense_values,
+        months=months,
+        income_per_month=income_per_month,
+        expenses_per_month=expenses_per_month
+    )
+
     
 @app.route('/export_excel')
 def export_excel():
