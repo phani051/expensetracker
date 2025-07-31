@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card shadow p-3">
+  <h2 class="mb-3">Admin Panel</h2>
+  <table class="table table-bordered table-hover">
+    <thead class="table-light">
+      <tr>
+        <th>User ID</th>
+        <th>Username</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>{{ user[0] }}</td>
+        <td>{{ user[1] }}</td>
+        <td>
+          <form action="{{ url_for('admin_reset_password', user_id=user[0]) }}" method="post">
+            <button type="submit" class="btn btn-sm btn-danger">Reset to default123</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
