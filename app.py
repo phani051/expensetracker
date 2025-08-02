@@ -562,4 +562,5 @@ def admin_reset_password(user_id):
 # ---------------- MAIN ----------------
 if __name__ == '__main__':
     init_db()
-    app.run(host="192.168.0.100", port=5000, debug=True)
+    # app.run(host="192.168.0.100", port=5000, debug=True)
+    app.run(debug=True)
